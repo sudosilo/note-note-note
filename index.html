@@ -89,6 +89,7 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
         <button id="mMove" aria-pressed="true">Move</button>
         <button id="mSel" aria-pressed="false">Select</button>
       </div>
+      <button id="outBtn" hidden aria-label="Go back out to the pad this note is on">Out</button>
       <button id="fitBtn" aria-label="Show the whole pad">Fit</button>
       <button id="menuBtn" aria-label="Menu" aria-expanded="false">Menu</button>
     </div>
@@ -364,7 +365,10 @@ function resize(){dpr=window.devicePixelRatio||1;var r=stage.getBoundingClientRe
 new ResizeObserver(resize).observe(stage);
 function draw(){if(!raf)raf=requestAnimationFrame(render);}
 function fitAll(){if(!cur)return;var s=Math.min((VW-24)/cur.cols,(VH-24)/cur.rows);view.s=s;view.ox=(VW-cur.cols*s)/2;view.oy=(VH-cur.rows*s)/2;draw();}
-function zoomAt(f,cx,cy){var mn=Math.min(VW/cur.cols,VH/cur.rows)*0.4,ns=Math.max(mn,Math.min(420,view.s*f));f=ns/view.s;view.ox=cx-(cx-view.ox)*f;view.oy=cy-(cy-view.oy)*f;view.s=ns;draw();}
+var exitCool=0;
+function goOut(){if(!cur||!cur.parent)return;if(editing)closeEditor();var p=cur.parent;enterBoard(p.board,p.note);exitCool=performance.now()+700;}
+function zoomAt(f,cx,cy){var fit=Math.min(VW/cur.cols,VH/cur.rows),mn=fit*0.4,ns=Math.max(mn,Math.min(420,view.s*f));
+  if(f<1&&cur.parent&&view.s*f<fit*0.5&&performance.now()>exitCool){goOut();return;}f=ns/view.s;view.ox=cx-(cx-view.ox)*f;view.oy=cy-(cy-view.oy)*f;view.s=ns;draw();}
 function sheetH(){var el=$("sheet");return el.hidden?0:el.getBoundingClientRect().height;}
 function focusNote(n){
   var bb=bbox(n),availH=Math.max(120,VH-sheetH()-24),w=bb.c1-bb.c0+1,h=bb.r1-bb.r0+1;
@@ -440,6 +444,7 @@ function render(){
   ctx.strokeStyle="rgba(31,36,48,.6)";ctx.lineWidth=1;ctx.strokeRect(Math.round(ox)+0.5,Math.round(oy)+0.5,Math.round(B.cols*s),Math.round(B.rows*s));
   var pill=$("pill");if(pill.dataset.flash)return;
   if(mode==="select")pill.textContent=s<6?"Zoom in to pick squares":(tool==="box"?"Drag a box over squares. Two fingers move the pad.":"Drag across squares to pick them. Two fingers move the pad.");
+  else if(B.parent&&s<=Math.min(VW/B.cols,VH/B.rows)*1.05)pill.textContent="Inside a note. Pinch out or tap Out to go back.";
   else if(fillA<=0)pill.textContent="Picture view. Zoom in to see notes.";
   else if(FS*s<4.5)pill.textContent="Zoom in more to read notes.";
   else pill.textContent="Tap a note to edit, or an empty square to start one.";
@@ -583,7 +588,7 @@ function joinSameColor(start){
 
 // ---------- boards ----------
 function enterBoard(id,focusId){
-  var b=boards.get(id);loadBoard(b);sel.clear();renderCrumbs();updateSelbar();
+  var b=boards.get(id);loadBoard(b);sel.clear();renderCrumbs();updateSelbar();$("outBtn").hidden=!b.parent;$("outBtn").textContent=b.parent&&boards.get(b.parent.board).parent?"Out":"Out to main";
   if(focusId&&notes.get(focusId)&&notes.get(focusId).board===id){focusNote(notes.get(focusId));}else fitAll();
 }
 function renderCrumbs(){
@@ -602,6 +607,7 @@ function renderCrumbs(){
 // ---------- menu ----------
 function padStats(){var here=countIn(cur.id);$("padStats").textContent=(cur.cols*cur.rows).toLocaleString("en-US")+" squares on this pad ("+cur.cols+" x "+cur.rows+"). "+here.toLocaleString("en-US")+" notes here, "+notes.size.toLocaleString("en-US")+" notes in all pads.";}
 $("menuBtn").onclick=function(){var m=$("menu");m.hidden=!m.hidden;this.setAttribute("aria-expanded",String(!m.hidden));var v=String(cur.cols);if(![].some.call($("colsIn").options,function(o){return o.value===v;})){var o=document.createElement("option");o.value=v;o.textContent=v+" across";$("colsIn").appendChild(o);}$("colsIn").value=v;padStats();$("adjustBtn").textContent=cur.parent?"Adjust picture (on main pad)":"Adjust picture";wipeArm(false);};
+$("outBtn").onclick=goOut;
 $("fitBtn").onclick=function(){if(editing)closeEditor();fitAll();};
 $("loadImg").onclick=function(){$("imgFile").click();};
 $("imgFile").onchange=function(e){var f=e.target.files[0];e.target.value="";if(!f)return;flash("Loading picture");readImage(f,function(bl,w,h){
