@@ -92,6 +92,8 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
 .lc{width:30px;height:30px;padding:0;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line)}
 .lc[aria-pressed=true]{box-shadow:0 0 0 2px var(--ink)}
 .menu .seg button[aria-pressed=true]{background:var(--ink);color:#fff}
+.connColors{margin-left:auto;display:flex;gap:5px;align-items:center}
+.connColors .lc{width:26px;height:26px}
 .hit mark{background:#FFE890;color:var(--ink);border-radius:2px;padding:0 1px}
 </style>
 
@@ -110,6 +112,7 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
       <button id="outBtn" hidden aria-label="Go back out to the pad this note is on">Out</button>
       <button id="fitBtn" aria-label="Show the whole pad">Fit</button>
     </div>
+    <div class="connColors" id="connColors" hidden aria-label="Line color"></div>
   </div>
   <div class="stage" id="stage">
     <canvas id="cv"></canvas>
@@ -817,8 +820,9 @@ function remapBoard(nc,nr){
 
 // ---------- lines between notes ----------
 var LINE_COLORS=["#1F2430","#E0407B","#F08A24","#2B5FD9","#2E9E5B","#8E44D6"];
-function startConnect(){if(!editing)return;connectFrom=headOf(notes.get(editing)).id;var keep=connectFrom;justCreated=false;closeEditor();connectFrom=keep;if(!centers)buildCenters();var cc=centerMap.get(keep);if(cc){view.s=Math.max(12.5,Math.min(view.s,Math.min(VW,VH)/30));view.ox=VW/2-cc[0]*view.s;view.oy=VH/2-cc[1]*view.s;}$("pill").dataset.flash="1";$("pill").textContent="Tap another note to connect. Tap empty space to cancel.";$("pill").classList.add("hot");}
-function endConnect(){connectFrom=0;$("pill").classList.remove("hot");delete $("pill").dataset.flash;draw();}
+function renderConnColors(){var w=$("connColors");w.innerHTML="";LINE_COLORS.forEach(function(c){var b=document.createElement("button");b.className="lc";b.style.background=c;b.setAttribute("aria-label","Line color");b.setAttribute("aria-pressed",String((meta.lineColor||"#1F2430")===c));b.onclick=function(){meta.lineColor=c;dirtyMeta=true;queueSave();renderConnColors();};w.appendChild(b);});}
+function startConnect(){if(!editing)return;connectFrom=headOf(notes.get(editing)).id;var keep=connectFrom;justCreated=false;closeEditor();connectFrom=keep;if(!centers)buildCenters();var cc=centerMap.get(keep);if(cc){view.s=Math.max(12.5,Math.min(view.s,Math.min(VW,VH)/30));view.ox=VW/2-cc[0]*view.s;view.oy=VH/2-cc[1]*view.s;}$("pill").dataset.flash="1";$("pill").textContent="Tap another note to connect. Tap empty space to cancel.";$("pill").classList.add("hot");renderConnColors();$("connColors").hidden=false;}
+function endConnect(){connectFrom=0;$("connColors").hidden=true;$("pill").classList.remove("hot");delete $("pill").dataset.flash;draw();}
 $("connectNote").onclick=startConnect;
 $("unlinkNote").onclick=function(){if(!editing)return;var id=editing;cur.links=(cur.links||[]).filter(function(L){return L.a!==id&&L.b!==id;});markBoard(cur.id);updateLineBtns(notes.get(id));draw();flash("Lines removed from this note.");};
 function setLines(on){meta.lines=on;dirtyMeta=true;queueSave();$("linesBtn").textContent=on?"Lines: on":"Lines: off";$("linesBtn").setAttribute("aria-pressed",String(on));draw();}
