@@ -114,7 +114,7 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
         <button id="loadImg">Change picture</button>
         <button id="adjustBtn">Adjust picture</button>
         <div class="row"><button id="dmcBtn" aria-pressed="true">DMC colors: on</button><button id="pulseBtn" aria-pressed="false">Heartbeat: off</button></div>
-        <div class="note">DMC colors snaps every square to the 447 diamond painting colors and shows the code when you zoom in close. Heartbeat pulses a ring on every note each 10 seconds so forgotten notes are easy to find.</div>
+        <div class="note">DMC colors snaps every square to the 447 diamond painting colors and shows the code when you zoom in close. Heartbeat pulses a ring on every note each 10 seconds so forgotten notes are easy to find. Giving a note the same color as a note it touches joins them into one note.</div>
         <input type="file" id="imgFile" accept="image/*" hidden>
         <label class="f">Squares across. Notes keep their place when you change it.
           <select id="colsIn" style="font:inherit;font-size:15px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)">
@@ -536,7 +536,7 @@ function closeEditor(){
   if(n&&justCreated&&!(n.text||"").trim()&&!(n.inner&&countIn(n.inner)))removeNote(editing);
   editing=0;justCreated=false;$("sheet").hidden=true;$("noteText").blur();draw();
 }
-function renderSwatches(n){var w=$("swatches");w.innerHTML="";COLORS.forEach(function(c,ci){var b=document.createElement("button");b.style.background=c;b.setAttribute("aria-label","Note color");b.setAttribute("aria-pressed",String((n.color|0)===ci));b.onclick=function(){n.color=ci;paintCells(n.cells,ci);markNote(n.id);renderSwatches(n);draw();};w.appendChild(b);});}
+function renderSwatches(n){var w=$("swatches");w.innerHTML="";COLORS.forEach(function(c,ci){var b=document.createElement("button");b.style.background=c;b.setAttribute("aria-label","Note color");b.setAttribute("aria-pressed",String((n.color|0)===ci));b.onclick=function(){n.color=ci;paintCells(n.cells,ci);markNote(n.id);if(!joinSameColor(n)){renderSwatches(n);draw();}};w.appendChild(b);});}
 function updateInsideBtn(n){var k=n.inner?countIn(n.inner):0;$("openInside").textContent=k?"Open inside ("+k.toLocaleString("en-US")+(k===1?" note)":" notes)"):"Open inside";}
 function checkFit(n){$("fitWarn").hidden=!layout(n).overflow;}
 $("noteText").addEventListener("input",function(){if(!editing)return;var n=notes.get(editing);n.text=this.value;if(n.text.trim())justCreated=false;layoutCache.delete(n.id);checkFit(n);markNote(n.id);draw();});
@@ -553,6 +553,33 @@ $("openInside").onclick=function(){
   }
   var target=n.inner;justCreated=false;closeEditor();enterBoard(target);
 };
+
+
+// ---------- join touching notes of the same color ----------
+function joinSameColor(start){
+  var cols=cur.cols,rows=cur.rows,group=new Set([start.id]),queue=[start.id];
+  while(queue.length){
+    var n=notes.get(queue.pop());
+    for(var q=0;q<n.cells.length;q++){
+      var i=n.cells[q],c=i%cols,r=(i/cols)|0,nb=[];
+      if(c>0)nb.push(i-1);if(c<cols-1)nb.push(i+1);if(r>0)nb.push(i-cols);if(r<rows-1)nb.push(i+cols);
+      for(var k=0;k<nb.length;k++){var o=owner[nb[k]];if(o&&!group.has(o)&&(notes.get(o).color|0)===(start.color|0)){group.add(o);queue.push(o);}}
+    }
+  }
+  if(group.size<2)return false;
+  var ids=Array.from(group).sort(function(a,b){return a-b;});
+  var withInner=ids.filter(function(id){var m=notes.get(id);return m.inner&&countIn(m.inner)>0;}),skipped=0;
+  if(withInner.length>1){skipped=withInner.length-1;ids=ids.filter(function(id){return withInner.indexOf(id)<=0;});}
+  if(ids.length<2){flash("That note touches another note with notes inside, so they can't join.");return false;}
+  var keepId=withInner.length?withInner[0]:ids[0],keep=notes.get(keepId),cells=new Set(),texts=[];
+  ids.forEach(function(id){var m=notes.get(id);m.cells.forEach(function(c){cells.add(c);});if(m.text&&m.text.trim())texts.push(m.text.trim());});
+  ids.forEach(function(id){if(id!==keepId)removeNote(id);});
+  keep.text=texts.join("\n\n");keep.color=start.color;
+  setNoteCells(keep,Array.from(cells).sort(function(a,b){return a-b;}));
+  justCreated=false;openEditor(keepId,false);
+  flash("Joined "+ids.length+" notes of the same color into one."+(skipped?" Notes that already hold notes inside stayed separate.":""));
+  return true;
+}
 
 // ---------- boards ----------
 function enterBoard(id,focusId){
