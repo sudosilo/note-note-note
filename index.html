@@ -85,6 +85,13 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
 .hit{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%}
 .hit .snip{font-size:14px;color:var(--ink);overflow-wrap:anywhere}
 .hit .where{font-size:12px;color:var(--muted)}
+.insideTag{position:absolute;left:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));padding:6px 12px;border-radius:8px;border:1px solid rgba(31,36,48,.35);font-weight:700;font-size:14px;color:var(--ink);max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
+.undoBar{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#fff;border-radius:10px;padding:8px 8px 8px 14px;display:flex;gap:12px;align-items:center;box-shadow:0 6px 20px rgba(31,36,48,.25);z-index:4}
+.undoBar button{background:#fff;color:var(--ink);border-color:#fff}
+.pill.hot{background:var(--ink);color:#fff;border-color:var(--ink)}
+.lc{width:30px;height:30px;padding:0;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line)}
+.lc[aria-pressed=true]{box-shadow:0 0 0 2px var(--ink)}
+.menu .seg button[aria-pressed=true]{background:var(--ink);color:#fff}
 .hit mark{background:#FFE890;color:var(--ink);border-radius:2px;padding:0 1px}
 </style>
 
@@ -107,6 +114,8 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
   <div class="stage" id="stage">
     <canvas id="cv"></canvas>
     <div class="pill" id="pill"></div>
+    <div class="insideTag" id="insideTag" hidden></div>
+    <div class="undoBar" id="undoBar" hidden><span id="undoText">Note deleted.</span><button class="primary" id="undoBtn">Undo</button></div>
     <div class="selbar adj" id="adjbar" hidden>
       <div class="row"><button id="rotL" aria-label="Rotate left 90 degrees">Rotate left</button><button id="rotR" aria-label="Rotate right 90 degrees">Rotate right</button><button id="adjReset">Reset</button><button class="primary" id="adjDone">Done</button></div>
       <label class="rng">Spin <input type="range" id="rotIn" min="-180" max="180" step="1" value="0"><span id="rotVal">0 deg</span></label>
@@ -130,7 +139,7 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
       <div class="grp">
         <button id="loadImg">Change picture</button>
         <button id="adjustBtn">Adjust picture</button>
-        <div class="row"><button id="dmcBtn" aria-pressed="true">DMC colors: on</button><button id="pulseBtn" aria-pressed="false">Heartbeat: off</button></div>
+        <div class="row"><button id="dmcBtn" aria-pressed="true">DMC colors: on</button><button id="codesBtn" aria-pressed="true">Square codes: on</button><button id="pulseBtn" aria-pressed="false">Heartbeat: off</button></div>
         <div class="note">DMC colors snaps every square to the 447 diamond painting colors and shows the code when you zoom in close. Heartbeat pulses a ring on every note each 10 seconds so forgotten notes are easy to find. Giving a note the same color as a note it touches joins them into one note.</div>
         <input type="file" id="imgFile" accept="image/*" hidden>
         <label class="f">Squares across. Notes keep their place when you change it.
@@ -142,6 +151,15 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
         <div class="note" id="padStats"></div>
       </div>
       <div class="grp">
+        <h3>Lines and templates</h3>
+        <div class="row"><button id="linesBtn" aria-pressed="true">Lines: on</button><div class="seg" role="group" aria-label="Line weight"><button id="lwThin" aria-pressed="true">Thin</button><button id="lwBold" aria-pressed="false">Bold</button></div></div>
+        <div class="row" id="lineColors" aria-label="Line color"></div>
+        <div class="note">To connect two notes, open a note, tap Connect, then tap the other note. New lines use the color and weight picked here.</div>
+        <button id="mindBtn">Add a mind map here</button>
+        <button id="exBtn" hidden>Remove example notes</button>
+      </div>
+      <div class="grp">
+        <div class="note" id="backupLine"></div>
         <div class="note">Your notes are saved only in this browser on this device. Nothing is sent anywhere. Export makes a backup file you can import on another phone or computer.</div>
         <div class="row">
           <button id="exportBtn">Export backup</button>
@@ -167,6 +185,8 @@ textarea{font:inherit;font-size:16px;width:100%;min-height:96px;max-height:30vh;
   <div class="row">
     <button id="openInside">Open inside</button>
     <button id="sepNote" hidden>Separate</button>
+    <button id="connectNote">Connect</button>
+    <button id="unlinkNote" hidden>Remove lines</button>
     <button class="danger" id="delNote">Delete note</button>
     <span style="flex:1"></span>
     <button class="primary" id="doneNote">Done</button>
@@ -190,7 +210,7 @@ var meta=null;            // {rootId,nextId,imgW,imgH}
 var boards=new Map();     // id -> {id,parent:{board,note}|null,rel:[x,y,w,h],cols,rows}
 var notes=new Map();      // id -> {id,board,cells:[],text,color,inner}
 var boardNotes=new Map(); // boardId -> Set(noteId)
-var imgBlob=null, rootImg=null, srcCache=null, picIdx=null, adjusting=false, rebuildT=null, centers=null, pulseStart=0, pulseTimer=null;
+var imgBlob=null, rootImg=null, srcCache=null, picIdx=null, adjusting=false, rebuildT=null, centers=null, centerMap=null, connectFrom=0, lastDeleted=null, undoT=null, pulseStart=0, pulseTimer=null;
 var cur=null, owner=null, layer=null, layerCtx=null, layerData=null, picCache={}, layoutCache=new Map();
 var tapCell=-1,view={s:1,ox:0,oy:0}, mode="move", tool="brush", sel=new Set(), editing=0, justCreated=false;
 
@@ -254,7 +274,7 @@ function buildSample(){
     imgBlob=bl;meta={v:2,rootId:1,nextId:1,imgW:c.width,imgH:c.height,pic:{rot:0,scale:1,dx:0,dy:0},dmc:true,pulse:false};
     var root={id:1,parent:null,rel:[0,0,1,1],cols:DEFAULT_COLS,rows:Math.round(DEFAULT_COLS*c.height/c.width)};
     boards=new Map([[1,root]]);notes=new Map();indexNotes();
-    function add(bd,cells,text,color){var n={id:newId(),board:bd.id,cells:cells,text:text,color:color,inner:0};notes.set(n.id,n);boardNotes.get(bd.id).add(n.id);return n;}
+    function add(bd,cells,text,color){var n={id:newId(),board:bd.id,cells:cells,text:text,color:color,inner:0,ex:true};notes.set(n.id,n);boardNotes.get(bd.id).add(n.id);return n;}
     var F=root.cols/480;function rc(b,c0,r0,w,h){return rectCells(b,Math.round(c0*F),Math.round(r0*F),w,h);}
     add(root,rc(root,262,150,8,3),"Example note. Tap any empty square to start a note. Zoom out and notes fade into the picture.",0);
     add(root,rc(root,274,156,1,9),"A narrow note stacks words down the pad.",1);
@@ -332,6 +352,7 @@ function setNoteCells(n,cells){
 }
 function removeNote(id){
   centers=null;var n=notes.get(id);if(!n)return;if(n.inner)removeBoard(n.inner);
+  var bd=boards.get(n.board);if(bd&&bd.links&&bd.links.length){var before=bd.links.length;bd.links=bd.links.filter(function(L){return L.a!==id&&L.b!==id;});if(bd.links.length!==before)markBoard(bd.id);}
   var pv=n.prev&&notes.get(n.prev),nx=n.next&&notes.get(n.next);
   if(pv&&pv.next===id){pv.next=nx&&nx.prev===id?nx.id:0;markNote(pv.id);}
   if(nx&&nx.prev===id){nx.prev=pv&&pv.next===nx.id?pv.id:0;if(!nx.prev)nx.auto=false;markNote(nx.id);}
@@ -432,13 +453,19 @@ function render(){
   var c0=Math.max(0,Math.floor(-ox/s)),c1=Math.min(B.cols,Math.ceil((VW-ox)/s)),r0=Math.max(0,Math.floor(-oy/s)),r1=Math.min(B.rows,Math.ceil((VH-oy)/s));
   if(adjusting&&!B.parent&&rootImg){ctx.save();ctx.beginPath();ctx.rect(ox,oy,B.cols*s,B.rows*s);ctx.clip();ctx.translate(ox,oy);ctx.fillStyle="#fff";ctx.fillRect(0,0,B.cols*s,B.rows*s);drawTransformed(ctx,B.cols*s,B.rows*s);ctx.restore();}
   else{ctx.imageSmoothingEnabled=s<1;ctx.drawImage(pictureFor(B),ox,oy,B.cols*s,B.rows*s);}
+  if(meta.lines!==false&&cur.links&&cur.links.length){
+    if(!centers)buildCenters();
+    ctx.lineCap="round";
+    cur.links.forEach(function(L){var a=centerMap.get(L.a),b=centerMap.get(L.b);if(!a||!b)return;ctx.strokeStyle=L.c||"#1F2430";ctx.lineWidth=L.w||3;ctx.beginPath();ctx.moveTo(ox+a[0]*s,oy+a[1]*s);ctx.lineTo(ox+b[0]*s,oy+b[1]*s);ctx.stroke();});
+    ctx.lineCap="butt";
+  }
   var fillA=clamp01((s-1.2)/3.5);
   if(fillA>0){ctx.imageSmoothingEnabled=false;ctx.globalAlpha=fillA*0.94;ctx.drawImage(layer,ox,oy,B.cols*s,B.rows*s);ctx.globalAlpha=1;}
   var gA=clamp01((s-8)/30)*0.3;
   if(gA>0){ctx.strokeStyle="rgba(255,255,255,"+gA+")";ctx.lineWidth=1;ctx.beginPath();
     for(var c=c0;c<=c1;c++){var X=Math.round(ox+c*s)+0.5;ctx.moveTo(X,oy+r0*s);ctx.lineTo(X,oy+r1*s);}
     for(var r=r0;r<=r1;r++){var Y=Math.round(oy+r*s)+0.5;ctx.moveTo(ox+c0*s,Y);ctx.lineTo(ox+c1*s,Y);}ctx.stroke();}
-  if(picIdx&&!adjusting&&s>=30&&(c1-c0)*(r1-r0)<=20000){
+  if(picIdx&&meta.codes!==false&&!adjusting&&s>=30&&(c1-c0)*(r1-r0)<=20000){
     ctx.font="600 "+(s*0.26).toFixed(1)+"px ui-monospace,Menlo,monospace";ctx.textAlign="center";ctx.textBaseline="middle";
     for(r=r0;r<r1;r++)for(c=c0;c<c1;c++){var ii=r*cols+c;if(owner[ii])continue;var pp=DMC[picIdx[ii]],lum=0.299*pp.r+0.587*pp.g+0.114*pp.b;ctx.fillStyle=lum>150?"rgba(31,36,48,.55)":"rgba(255,255,255,.6)";ctx.fillText(pp.code,ox+c*s+s/2,oy+r*s+s/2);}
   }
@@ -534,6 +561,10 @@ function endPtr(e){
 stage.addEventListener("pointerup",endPtr);stage.addEventListener("pointercancel",endPtr);
 stage.addEventListener("wheel",function(e){e.preventDefault();var p=local(e);zoomAt(Math.exp(-e.deltaY*0.0015),p.x,p.y);},{passive:false});
 function tap(x,y){
+  if(connectFrom){var ci2=cellAt(x,y),o2=ci2>=0?owner[ci2]:0;
+    if(o2&&o2!==connectFrom&&notes.get(connectFrom)){cur.links=cur.links||[];var a=connectFrom,b=o2,dup=cur.links.some(function(L){return (L.a===a&&L.b===b)||(L.a===b&&L.b===a);});if(!dup){cur.links.push({a:a,b:b,c:meta.lineColor||"#1F2430",w:meta.lineW||3});markBoard(cur.id);}endConnect();flash(dup?"Those notes are already connected.":"Connected.");if(meta.lines===false)setLines(true);return;}
+    if(o2===connectFrom){flash("Tap a different note to connect to.");return;}
+    if(view.s>=12||!o2){endConnect();flash("Connecting canceled.");return;}}
   if(view.s<12){zoomAt(view.s<3?4:2.5,x,y);return;}
   var i=cellAt(x,y);if(i<0){if(editing)closeEditor();return;}
   var id=owner[i];
@@ -550,6 +581,7 @@ function mergeInto(keepId,ids,extra){
   var keep=notes.get(keepId),cells=new Set(),texts=[],parts=ids.map(function(id){return snap(notes.get(id));});
   ids.forEach(function(id){var m=notes.get(id);m.cells.forEach(function(c){cells.add(c);});if(m.text&&m.text.trim())texts.push(m.text.trim());});
   if(extra)extra.forEach(function(c){cells.add(c);});
+  if(cur.links&&cur.links.length){var seen=new Set();cur.links=cur.links.map(function(L){return {a:ids.indexOf(L.a)>=0?keepId:L.a,b:ids.indexOf(L.b)>=0?keepId:L.b,c:L.c,w:L.w};}).filter(function(L){var k=Math.min(L.a,L.b)+"-"+Math.max(L.a,L.b);if(L.a===L.b||seen.has(k))return false;seen.add(k);return true;});markBoard(cur.id);}
   ids.forEach(function(id){if(id!==keepId)removeNote(id);});
   keep.text=texts.join("\n\n");
   if(ids.length>1){keep.parts=parts;keep.joined=keep.text;}
@@ -612,7 +644,7 @@ function openEditor(id,created){
   editing=id;justCreated=!!created;var n=notes.get(id);
   $("sheet").hidden=false;$("noteText").value=n.text||"";
   updateMeta(n);
-  renderSwatches(n);updateInsideBtn(n);updateSepBtn(n);armDelete(false);checkFit(n);
+  renderSwatches(n);updateInsideBtn(n);updateSepBtn(n);updateLineBtns(n);armDelete(false);checkFit(n);
   requestAnimationFrame(function(){focusNote(n);});
   if(created)setTimeout(function(){$("noteText").focus();},60);
   draw();
@@ -623,6 +655,7 @@ function closeEditor(){
   editing=0;justCreated=false;tapCell=-1;$("sheet").hidden=true;$("noteText").blur();draw();
 }
 function renderSwatches(n){var w=$("swatches");w.innerHTML="";COLORS.forEach(function(c,ci){var b=document.createElement("button");b.style.background=c;b.setAttribute("aria-label","Note color");b.setAttribute("aria-pressed",String((n.color|0)===ci));b.onclick=function(){n.color=ci;paintCells(n.cells,ci);markNote(n.id);if(!joinSameColor(n)){renderSwatches(n);draw();}};w.appendChild(b);});}
+function updateLineBtns(n){var k=(cur.links||[]).filter(function(L){return L.a===n.id||L.b===n.id;}).length;$("unlinkNote").hidden=!k;$("unlinkNote").textContent="Remove lines ("+k+")";}
 function updateInsideBtn(n){var k=n.inner?countIn(n.inner):0;$("openInside").textContent=k?"Open inside ("+k.toLocaleString("en-US")+(k===1?" note)":" notes)"):"Open inside";}
 function checkFit(n){$("fitWarn").hidden=!layout(n).overflow;}
 function updateMeta(n){var ch=chainOf(n),k=ch.length-1;$("noteMeta").textContent=n.cells.length.toLocaleString("en-US")+(n.cells.length===1?" square":" squares")+(k?", continues into "+k+(k===1?" note below":" notes below"):"");}
@@ -631,7 +664,7 @@ $("doneNote").onclick=closeEditor;
 $("sepNote").onclick=function(){if(editing)separate(notes.get(editing));};
 var delArmed=false,delTimer=null;
 function armDelete(on){delArmed=on;var b=$("delNote");b.classList.toggle("armed",on);var n=editing&&notes.get(editing),k=n&&n.inner?countIn(n.inner):0;b.textContent=on?(k?"Delete it and "+k+" inside":"Tap again to delete"):"Delete note";clearTimeout(delTimer);if(on)delTimer=setTimeout(function(){armDelete(false);},4000);}
-$("delNote").onclick=function(){if(!editing)return;if(!delArmed){armDelete(true);return;}removeNote(editing);editing=0;justCreated=false;$("sheet").hidden=true;armDelete(false);draw();};
+$("delNote").onclick=function(){if(!editing)return;if(!delArmed){armDelete(true);return;}snapshotForUndo(editing);removeNote(editing);showUndo("Note deleted.");editing=0;justCreated=false;$("sheet").hidden=true;armDelete(false);draw();};
 $("openInside").onclick=function(){
   if(!editing)return;var n=notes.get(editing);
   if(!n.inner||!boards.get(n.inner)){
@@ -669,6 +702,7 @@ function joinSameColor(start){
 // ---------- boards ----------
 function enterBoard(id,focusId){
   var b=boards.get(id);loadBoard(b);sel.clear();renderCrumbs();updateSelbar();$("outBtn").hidden=!b.parent;$("outBtn").textContent=b.parent&&boards.get(b.parent.board).parent?"Out":"Out to main";
+  var fr=$("insideTag");if(b.parent){var pn=notes.get(b.parent.note),col=pn?COLORS[pn.color|0]:"#FFE890";stage.style.boxShadow="inset 0 0 0 6px "+col+", inset 0 0 0 7px rgba(31,36,48,.5)";fr.hidden=false;fr.style.background=col;fr.textContent="Inside: "+(pn?noteTitle(pn):"note");}else{stage.style.boxShadow="none";fr.hidden=true;}
   if(focusId&&notes.get(focusId)&&notes.get(focusId).board===id){focusNote(notes.get(focusId));}else fitAll();
 }
 function renderCrumbs(){
@@ -706,7 +740,7 @@ $("searchIn").addEventListener("input",function(){clearTimeout(searchT);searchT=
 
 // ---------- menu ----------
 function padStats(){var here=countIn(cur.id);$("padStats").textContent=(cur.cols*cur.rows).toLocaleString("en-US")+" squares on this pad ("+cur.cols+" x "+cur.rows+"). "+here.toLocaleString("en-US")+" notes here, "+notes.size.toLocaleString("en-US")+" notes in all pads.";}
-$("menuBtn").onclick=function(){var m=$("menu");m.hidden=!m.hidden;this.setAttribute("aria-expanded",String(!m.hidden));var v=String(cur.cols);if(![].some.call($("colsIn").options,function(o){return o.value===v;})){var o=document.createElement("option");o.value=v;o.textContent=v+" across";$("colsIn").appendChild(o);}$("colsIn").value=v;padStats();runSearch();setTimeout(function(){if(!$("menu").hidden&&window.innerWidth>700)$("searchIn").focus();},30);$("adjustBtn").textContent=cur.parent?"Adjust picture (on main pad)":"Adjust picture";wipeArm(false);};
+$("menuBtn").onclick=function(){var m=$("menu");m.hidden=!m.hidden;this.setAttribute("aria-expanded",String(!m.hidden));var v=String(cur.cols);if(![].some.call($("colsIn").options,function(o){return o.value===v;})){var o=document.createElement("option");o.value=v;o.textContent=v+" across";$("colsIn").appendChild(o);}$("colsIn").value=v;padStats();exBtn();backupLine();renderLineOpts();runSearch();setTimeout(function(){if(!$("menu").hidden&&window.innerWidth>700)$("searchIn").focus();},30);$("adjustBtn").textContent=cur.parent?"Adjust picture (on main pad)":"Adjust picture";wipeArm(false);};
 $("outBtn").onclick=goOut;
 $("fitBtn").onclick=function(){if(editing)closeEditor();fitAll();};
 $("loadImg").onclick=function(){$("imgFile").click();};
@@ -726,6 +760,7 @@ function blobToDataURL(b){return new Promise(function(res){var r=new FileReader(
 $("exportBtn").onclick=function(){
   blobToDataURL(imgBlob).then(function(img){
     var out={app:"note-note-note",v:2,meta:meta,img:img,boards:Array.from(boards.values()),notes:Array.from(notes.values())};
+    meta.lastBackup=Date.now();dirtyMeta=true;queueSave();backupLine();
     var blob=new Blob([JSON.stringify(out)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="note-note-note-backup.json";document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},3000);
   });
 };
@@ -752,7 +787,7 @@ document.addEventListener("visibilitychange",function(){if(document.visibilitySt
 
 
 // ---------- heartbeat ----------
-function buildCenters(){var out=[],cols=cur.cols;(boardNotes.get(cur.id)||new Set()).forEach(function(id){var n=notes.get(id);if(!n||!n.cells.length)return;var sx=0,sy=0,m=n.cells.length,step=Math.max(1,Math.floor(m/200)),k=0;for(var q=0;q<m;q+=step){var i=n.cells[q];sx+=i%cols;sy+=(i/cols)|0;k++;}out.push(sx/k+0.5,sy/k+0.5);});centers=out;}
+function buildCenters(){var out=[],map=new Map(),cols=cur.cols;(boardNotes.get(cur.id)||new Set()).forEach(function(id){var n=notes.get(id);if(!n||!n.cells.length)return;var sx=0,sy=0,m=n.cells.length,step=Math.max(1,Math.floor(m/200)),k=0;for(var q=0;q<m;q+=step){var i=n.cells[q];sx+=i%cols;sy+=(i/cols)|0;k++;}out.push(sx/k+0.5,sy/k+0.5);map.set(id,[sx/k+0.5,sy/k+0.5]);});centers=out;centerMap=map;}
 function setPulse(on){meta.pulse=on;dirtyMeta=true;queueSave();clearInterval(pulseTimer);$("pulseBtn").textContent=on?"Heartbeat: on":"Heartbeat: off";$("pulseBtn").setAttribute("aria-pressed",String(on));if(on){pulseStart=performance.now();draw();pulseTimer=setInterval(function(){pulseStart=performance.now();draw();},10000);}else{pulseStart=0;draw();}}
 $("pulseBtn").onclick=function(){setPulse(!meta.pulse);};
 
@@ -779,9 +814,72 @@ function remapBoard(nc,nr){
   b.cols=nc;b.rows=nr;markBoard(b.id);
 }
 
+
+// ---------- lines between notes ----------
+var LINE_COLORS=["#1F2430","#E0407B","#F08A24","#2B5FD9","#2E9E5B","#8E44D6"];
+function startConnect(){if(!editing)return;connectFrom=headOf(notes.get(editing)).id;var keep=connectFrom;justCreated=false;closeEditor();connectFrom=keep;if(!centers)buildCenters();var cc=centerMap.get(keep);if(cc){view.s=Math.max(12.5,Math.min(view.s,Math.min(VW,VH)/30));view.ox=VW/2-cc[0]*view.s;view.oy=VH/2-cc[1]*view.s;}$("pill").dataset.flash="1";$("pill").textContent="Tap another note to connect. Tap empty space to cancel.";$("pill").classList.add("hot");}
+function endConnect(){connectFrom=0;$("pill").classList.remove("hot");delete $("pill").dataset.flash;draw();}
+$("connectNote").onclick=startConnect;
+$("unlinkNote").onclick=function(){if(!editing)return;var id=editing;cur.links=(cur.links||[]).filter(function(L){return L.a!==id&&L.b!==id;});markBoard(cur.id);updateLineBtns(notes.get(id));draw();flash("Lines removed from this note.");};
+function setLines(on){meta.lines=on;dirtyMeta=true;queueSave();$("linesBtn").textContent=on?"Lines: on":"Lines: off";$("linesBtn").setAttribute("aria-pressed",String(on));draw();}
+$("linesBtn").onclick=function(){setLines(meta.lines===false);};
+function renderLineOpts(){var w=$("lineColors");w.innerHTML="";LINE_COLORS.forEach(function(c){var b=document.createElement("button");b.className="lc";b.style.background=c;b.setAttribute("aria-label","Line color");b.setAttribute("aria-pressed",String((meta.lineColor||"#1F2430")===c));b.onclick=function(){meta.lineColor=c;dirtyMeta=true;queueSave();renderLineOpts();};w.appendChild(b);});
+  $("lwThin").setAttribute("aria-pressed",String((meta.lineW||3)<4));$("lwBold").setAttribute("aria-pressed",String((meta.lineW||3)>=4));}
+$("lwThin").onclick=function(){meta.lineW=2;dirtyMeta=true;queueSave();renderLineOpts();};
+$("lwBold").onclick=function(){meta.lineW=6;dirtyMeta=true;queueSave();renderLineOpts();};
+
+// ---------- mind map template ----------
+function disc(cx,cy,rad){var out=[],r0=Math.floor(cy-rad),r1=Math.ceil(cy+rad),c0=Math.floor(cx-rad),c1=Math.ceil(cx+rad);for(var r=r0;r<=r1;r++)for(var c=c0;c<=c1;c++){if(r<0||c<0||r>=cur.rows||c>=cur.cols)continue;var dx=c+0.5-cx,dy=r+0.5-cy;if(dx*dx+dy*dy<=rad*rad&&!owner[r*cur.cols+c])out.push(r*cur.cols+c);}return out;}
+$("mindBtn").onclick=function(){
+  $("menu").hidden=true;$("menuBtn").setAttribute("aria-expanded","false");if(editing)closeEditor();
+  var s=view.s,cx=(VW/2-view.ox)/s,cy=(VH/2-view.oy)/s,R=12;
+  cx=Math.max(R*0.6,Math.min(cur.cols-R*0.6,cx));cy=Math.max(R*0.6,Math.min(cur.rows-R*0.6,cy));
+  var mid=disc(cx,cy,3.4);if(!mid.length){flash("No room here. Move to an emptier spot.");return;}
+  var center=addNote(mid,0);center.text="Main idea";markNote(center.id);
+  cur.links=cur.links||[];var made=1;
+  for(var k=0;k<6;k++){var ang=-Math.PI/2+k*Math.PI/3,lx=cx+Math.cos(ang)*R,ly=cy+Math.sin(ang)*R,cells=disc(lx,ly,2.5);if(!cells.length)continue;var leg=addNote(cells,[1,2,3,4,1,2][k]);leg.text="Idea "+(k+1);markNote(leg.id);cur.links.push({a:center.id,b:leg.id,c:meta.lineColor||"#1F2430",w:meta.lineW||3});made++;}
+  markBoard(cur.id);if(meta.lines===false)setLines(true);layoutCache.clear();
+  view.s=Math.min(VW,VH-40)/(2*(R+3)+1);view.ox=VW/2-cx*view.s;view.oy=VH/2-cy*view.s;draw();
+  flash("Mind map added with "+made+" notes. Tap any circle to write in it.");
+};
+
+// ---------- undo delete ----------
+function snapshotForUndo(id){
+  var n=notes.get(id),boardsOut=[],notesOut=[];
+  function grab(bid){var b=boards.get(bid);if(!b)return;boardsOut.push(JSON.parse(JSON.stringify(b)));(boardNotes.get(bid)||new Set()).forEach(function(nid){var m=notes.get(nid);notesOut.push(JSON.parse(JSON.stringify(m)));if(m.inner)grab(m.inner);});}
+  if(n.inner)grab(n.inner);
+  var bd=boards.get(n.board);
+  lastDeleted={note:JSON.parse(JSON.stringify(n)),boards:boardsOut,notes:notesOut,links:(bd.links||[]).filter(function(L){return L.a===id||L.b===id;}).map(function(L){return Object.assign({},L);})};
+}
+function showUndo(t){var u=$("undoBar");$("undoText").textContent=t;u.hidden=false;clearTimeout(undoT);undoT=setTimeout(function(){u.hidden=true;lastDeleted=null;},7000);}
+$("undoBtn").onclick=function(){
+  var d=lastDeleted;$("undoBar").hidden=true;clearTimeout(undoT);if(!d)return;lastDeleted=null;
+  d.boards.forEach(function(b){boards.set(b.id,b);boardNotes.set(b.id,new Set());markBoard(b.id);});
+  d.notes.forEach(function(m){notes.set(m.id,m);var st=boardNotes.get(m.board);if(st)st.add(m.id);markNote(m.id);});
+  var n=d.note,bd=boards.get(n.board);if(!bd){flash("That note's pad is gone, so it can't come back.");return;}
+  var cells=n.cells;n.cells=[];notes.set(n.id,n);boardNotes.get(n.board).add(n.id);
+  if(cur.id===n.board){var free=cells.filter(function(c){return !owner[c];});setNoteCells(n,free);}else{n.cells=cells;markNote(n.id);}
+  if(n.prev&&notes.get(n.prev)){notes.get(n.prev).next=n.id;markNote(n.prev);}
+  if(n.next&&notes.get(n.next)){notes.get(n.next).prev=n.id;markNote(n.next);}
+  bd.links=(bd.links||[]).concat(d.links.filter(function(L){return notes.get(L.a)&&notes.get(L.b);}));markBoard(bd.id);
+  layoutCache.clear();centers=null;draw();flash("Note restored.");
+};
+
+// ---------- examples, codes, storage ----------
+var EX_TEXTS=["Example note. Tap any empty square to start a note. Zoom out and notes fade into the picture.","A narrow note stacks words down the pad.","Weird shapes are fine. The shape is how you find it again.","A face note. Draw shapes with Select.","This note has notes inside. Tap it, then Open inside.","A note inside a note. Notes in here can hold notes too."];
+function exampleIds(){var out=[];notes.forEach(function(n,id){if(n.ex||EX_TEXTS.indexOf(n.text)>=0||(/^Note ([1-9]|[1-5][0-9]|60)$/.test(n.text||"")&&n.cells.length===6&&n.board===meta.rootId))out.push(id);});return out;}
+function exBtn(){var k=exampleIds().length;$("exBtn").hidden=!k;$("exBtn").textContent="Remove example notes ("+k+")";}
+$("exBtn").onclick=function(){var ids=exampleIds(),bid=cur.id;ids.forEach(function(id){if(notes.get(id))removeNote(id);});if(!boards.get(bid))bid=meta.rootId;enterBoard(bid);exBtn();padStats();flash("Removed "+ids.length+" example notes. Your own notes stayed.");};
+function setCodes(on){meta.codes=on;dirtyMeta=true;queueSave();$("codesBtn").textContent=on?"Square codes: on":"Square codes: off";$("codesBtn").setAttribute("aria-pressed",String(on));draw();}
+$("codesBtn").onclick=function(){setCodes(meta.codes===false);};
+var persisted=false;
+function protectStorage(){try{if(navigator.storage&&navigator.storage.persist){navigator.storage.persisted().then(function(p){if(p){persisted=true;backupLine();return;}return navigator.storage.persist().then(function(ok){persisted=!!ok;backupLine();});}).catch(function(){});}}catch(e){}}
+function backupLine(){var el=$("backupLine");if(!el)return;var d=meta.lastBackup,txt=d?"Last backup "+new Date(d).toLocaleDateString()+".":"No backup yet.";el.textContent=txt+(persisted?" This browser will keep your notes safe from automatic cleanup.":" This browser may clear saved data when space runs low, so export a backup now and then.");}
+function backupReminder(){var mine=notes.size-exampleIds().length;if(mine<3)return;var d=meta.lastBackup||0,now=Date.now();if(now-d<7*864e5)return;if(meta.lastRemind&&now-meta.lastRemind<864e5)return;meta.lastRemind=now;dirtyMeta=true;queueSave();setTimeout(function(){flash(d?"Your last backup was "+Math.floor((now-d)/864e5)+" days ago. Menu, Export backup.":"You have not backed up your notes yet. Menu, Export backup.");},2500);}
+
 // ---------- start ----------
 function decodeImg(){return new Promise(function(res){var u=URL.createObjectURL(imgBlob),im=new Image();im.onload=function(){rootImg=im;res();};im.onerror=function(){rootImg=null;res();};im.src=u;});}
-openDB().then(function(d){db=d;return loadAll();}).then(function(ok){return ok?null:buildSample();}).then(decodeImg).then(function(){meta.pic=meta.pic||{rot:0,scale:1,dx:0,dy:0};if(meta.dmc===undefined)meta.dmc=true;$("dmcBtn").textContent=meta.dmc?"DMC colors: on":"DMC colors: off";$("dmcBtn").setAttribute("aria-pressed",String(meta.dmc));resize();enterBoard(meta.rootId);setPulse(!!meta.pulse);if(!db)$("saveState").textContent="This browser is not letting the app save. Use Export backup to keep your notes.";});
+openDB().then(function(d){db=d;return loadAll();}).then(function(ok){return ok?null:buildSample();}).then(decodeImg).then(function(){meta.pic=meta.pic||{rot:0,scale:1,dx:0,dy:0};if(meta.dmc===undefined)meta.dmc=true;$("dmcBtn").textContent=meta.dmc?"DMC colors: on":"DMC colors: off";$("dmcBtn").setAttribute("aria-pressed",String(meta.dmc));setLines(meta.lines!==false);setCodes(meta.codes!==false);renderLineOpts();if(window.matchMedia&&matchMedia("(pointer:coarse)").matches){var o4=$("colsIn").querySelector('option[value="4000"]');if(o4)o4.remove();}resize();enterBoard(meta.rootId);setPulse(!!meta.pulse);protectStorage();backupLine();backupReminder();if(!db)$("saveState").textContent="This browser is not letting the app save. Use Export backup to keep your notes.";});
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){layoutCache=new Map();draw();});
 })();
 
